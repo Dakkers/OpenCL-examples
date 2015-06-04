@@ -1,0 +1,10 @@
+# openCL C++ headers
+CL/
+
+# compiled files
+*.out
+
+# THIS IS MY SWAP
+# (vim swap files)
+*.swp
+*.swo
