@@ -51,18 +51,31 @@ int main() {
     cl::Device default_device=all_devices[1];
     // std::cout<< "Using device: "<<default_device.getInfo<CL_DEVICE_NAME>()<<"\n";
 
-    // a context is like a "runtime link" to the device and platform;
-    // i.e. communication is possible
     cl::Context context({default_device});
-
-    // create the program that we want to execute on the device
     cl::Program::Sources sources;
 
-    /*
     // calculates for each element; C = A + B
     std::string kernel_code=
-        "   void kernel simple_add(global const int* A, global const int* B, global int* C) {"
-        "       C[get_global_id(0)] = A[get_global_id(0)] + B[get_global_id(0)];"
+        //  is equivalent to the host's "time_add_vectors" function, except the
+        //  timing will be done on the host.
+        "   void kernel looped_add(global const int* A, global const int* B, global int* C, "
+        "                          global const int* constants) {"
+        "       int ID, Nthreads, n, k, ratio, start, stop;"
+        "       ID = get_global_id(0);"
+        "       Nthreads = get_global_size(0);"
+        "       n = constants[0];"  // size of vectors
+        "       k = constants[1];"  // number of loop iterations
+        ""
+        "       ratio = (n / Nthreads);" // elements per thread
+        "       start = ratio * ID;"
+        "       stop  = ratio * (ID+1);"
+        ""
+        "       int i, j;" // will the compiler optimize this anyway? probably.
+        "       for (i=0; i<k; i++) {"
+        "           for (j=start; j<stop; j++)"
+        "               C[j] = A[j] + B[j];"
+        "           barrier(CLK_GLOBAL_MEM_FENCE);"
+        "       }"
         "   }";
     sources.push_back({kernel_code.c_str(), kernel_code.length()});
 
@@ -72,36 +85,64 @@ int main() {
         exit(1);
     }
 
-    // create buffers on device (allocate space on GPU)
-    cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(int) * 10);
-    cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(int) * 10);
-    cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(int) * 10);
+    int n, k, Nthreads; 
+    n = 100000;  // size of vectors
+    k = 1000;   // number of loop iterations
+    Nthreads = 10;
+    int constants[2] = {n, k};
 
-    // create things on here (CPU)
-    int A[] = {0,1,2,3,4,5,6,7,8,9};
-    int B[] = {0,1,2,0,1,2,0,1,2,0};
+    // run the CPU code
+    float CPUtime = time_add_vectors(n, k);
 
-    // create a queue (a queue of commands that the GPU will execute)
+    // run some GPU code; this block allocates space, writes buffers, and then
+    // adds the same two vectors multiple times -- i.e. it's equivalent to the
+    // host (CPU) code above, but with some necessary overhead.
     cl::CommandQueue queue(context, default_device);
+    cl::KernelFunctor looped_add(cl::Kernel(program, "looped_add"), queue, cl::NullRange, cl::NDRange(Nthreads), cl::NullRange);
+
+    // construct vectors
+    int A[n], B[n], C[n];
+    for (int i=0; i<n; i++) {
+        A[i] = i;
+        B[i] = n - i - 1;
+        C[i] = 0;
+    }
+
+    // start timer
+    double GPUtime1;
+    std::clock_t start_time;
+    start_time = std::clock();
+
+    // allocate space
+    cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(int) * n);
+    cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(int) * n);
+    cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(int) * n);
+    cl::Buffer buffer_constants(context, CL_MEM_READ_ONLY, sizeof(int) * 2);
 
     // push write commands to queue
-    queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*10, A);
-    queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*10, B);
+    queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*n, A);
+    queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*n, B);
+    queue.enqueueWriteBuffer(buffer_constants, CL_TRUE, 0, sizeof(int)*2, constants);
 
     // RUN ZE KERNEL
-    cl::KernelFunctor simple_add(cl::Kernel(program, "simple_add"), queue, cl::NullRange, cl::NDRange(10), cl::NullRange);
-    simple_add(buffer_A, buffer_B, buffer_C);
+    std::cout << "Running...";
+    looped_add(buffer_A, buffer_B, buffer_C, buffer_constants);
+    std::cout << "Cool." << std::endl;
 
-    int C[10];
     // read result from GPU to here
-    queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*10, C);
+    queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*n, C);
+    
+    GPUtime1 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
 
-    std::cout << "result: {";
-    for (int i=0; i<10; i++) {
-        std::cout << C[i] << " ";
-    }
-    std::cout << "}" << std::endl;
-    */
+    // let's compare!
+    double time_ratio = (CPUtime / GPUtime1);
+    std::cout << "CPU time: " << CPUtime  << std::endl;
+    std::cout << "GPU time: " << GPUtime1 << std::endl;
+    std::cout << "GPU is ";
+    if (time_ratio > 1)
+        std::cout << time_ratio << " times faster!" << std::endl;
+    else
+        std::cout << time_ratio << " times slower :(" << std::endl;
     return 0;
 }
 
