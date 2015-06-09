@@ -3,7 +3,7 @@
 #include <ctime>
 
 
-double time_add_vectors(int n, int k) {
+double timeAddVectorsCPU(int n, int k) {
     // adds two vectors of size n, k times, returns total duration
     std::clock_t start;
     double duration;
@@ -25,7 +25,6 @@ double time_add_vectors(int n, int k) {
     duration = (std::clock() - start) / (double) CLOCKS_PER_SEC;
     return duration;
 }
-
 
 int main() {
     // get all platforms (drivers), e.g. NVIDIA
@@ -58,7 +57,7 @@ int main() {
     std::string kernel_code=
         //  is equivalent to the host's "time_add_vectors" function, except the
         //  timing will be done on the host.
-        "   void kernel looped_add(global const int* A, global const int* B, global int* C, "
+        "   void kernel looped_add(global const int* v1, global const int* v2, global int* v3, "
         "                          global const int* constants) {"
         "       int ID, Nthreads, n, k, ratio, start, stop;"
         "       ID = get_global_id(0);"
@@ -73,9 +72,23 @@ int main() {
         "       int i, j;" // will the compiler optimize this anyway? probably.
         "       for (i=0; i<k; i++) {"
         "           for (j=start; j<stop; j++)"
-        "               C[j] = A[j] + B[j];"
-        "           barrier(CLK_GLOBAL_MEM_FENCE);"
+        "               v3[j] = v1[j] + v2[j];"
         "       }"
+        "   }"
+        ""
+        "   void kernel add(global const int* v1, global const int* v2, global int* v3, "
+        "                   global const int* constants) {"
+        "       int ID, Nthreads, n, ratio, start, stop;"
+        "       ID = get_global_id(0);"
+        "       Nthreads = get_global_size(0);"
+        "       n = constants[0];"
+        ""
+        "       ratio = (n / Nthreads);"
+        "       start = ratio * ID;"
+        "       stop  = ratio * (ID+1);"
+        ""
+        "       for (int i=start; i<stop; i++)"
+        "           v3[i] = v1[i] + v2[i];"
         "   }";
     sources.push_back({kernel_code.c_str(), kernel_code.length()});
 
@@ -92,13 +105,14 @@ int main() {
     int constants[2] = {n, k};
 
     // run the CPU code
-    float CPUtime = time_add_vectors(n, k);
+    float CPUtime = timeAddVectorsCPU(n, k);
 
     // run some GPU code; this block allocates space, writes buffers, and then
     // adds the same two vectors multiple times -- i.e. it's equivalent to the
     // host (CPU) code above, but with some necessary overhead.
     cl::CommandQueue queue(context, default_device);
     cl::KernelFunctor looped_add(cl::Kernel(program, "looped_add"), queue, cl::NullRange, cl::NDRange(Nthreads), cl::NullRange);
+    cl::KernelFunctor add(cl::Kernel(program, "add"), queue, cl::NullRange, cl::NDRange(Nthreads), cl::NullRange);
 
     // construct vectors
     int A[n], B[n], C[n];
@@ -125,19 +139,45 @@ int main() {
     queue.enqueueWriteBuffer(buffer_constants, CL_TRUE, 0, sizeof(int)*2, constants);
 
     // RUN ZE KERNEL
-    std::cout << "Running...";
     looped_add(buffer_A, buffer_B, buffer_C, buffer_constants);
-    std::cout << "Cool." << std::endl;
 
-    // read result from GPU to here
+    // read result from GPU to here; including for the sake of timing
     queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*n, C);
-    
     GPUtime1 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
+
+    // do the same thing, except copy the arrays over every iteration
+    double GPUtime2;
+    start_time = std::clock();
+
+    cl::Buffer buffer_A2(context, CL_MEM_READ_WRITE, sizeof(int)*n);
+    cl::Buffer buffer_B2(context, CL_MEM_READ_WRITE, sizeof(int)*n);
+    cl::Buffer buffer_C2(context, CL_MEM_READ_WRITE, sizeof(int)*n);
+    cl::Buffer buffer_constants2(context, CL_MEM_READ_ONLY, sizeof(int)*2);
+    for (int i=0; i<k; i++) {
+        queue.enqueueWriteBuffer(buffer_A2, CL_TRUE, 0, sizeof(int)*n, A);
+        queue.enqueueWriteBuffer(buffer_B2, CL_TRUE, 0, sizeof(int)*n, B);
+        queue.enqueueWriteBuffer(buffer_constants2, CL_TRUE, 0, sizeof(int)*2, constants);
+
+        add(buffer_A2, buffer_B2, buffer_C2, buffer_constants2);
+    }
+    queue.enqueueReadBuffer(buffer_C2, CL_TRUE, 0, sizeof(int)*n, C);
+    GPUtime2 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
 
     // let's compare!
     double time_ratio = (CPUtime / GPUtime1);
+    std::cout << "VERSION 1 -----------" << std::endl;
     std::cout << "CPU time: " << CPUtime  << std::endl;
     std::cout << "GPU time: " << GPUtime1 << std::endl;
+    std::cout << "GPU is ";
+    if (time_ratio > 1)
+        std::cout << time_ratio << " times faster!" << std::endl;
+    else
+        std::cout << time_ratio << " times slower :(" << std::endl;
+
+    time_ratio = (CPUtime / GPUtime2);
+    std::cout << "\nVERSION 2 -----------" << std::endl;
+    std::cout << "CPU time: " << CPUtime  << std::endl;
+    std::cout << "GPU time: " << GPUtime2 << std::endl;
     std::cout << "GPU is ";
     if (time_ratio > 1)
         std::cout << time_ratio << " times faster!" << std::endl;

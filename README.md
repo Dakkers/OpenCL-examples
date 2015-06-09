@@ -9,8 +9,14 @@ timing results of vectors added together on a CPU vs GPU. the size of the vector
 
 - CPU code
 - GPU code equivalent
+- GPU code where the buffers are created and destroyed each iteration (this is guaranteed to be slower, of course, but it would be nice to see the amount of overhead that occurs with inefficient copying...)
 
 todo:
 
-- GPU code where a work-group barrier is initiated after each thread is done its work
-- GPU code where the buffers are created and destroyed each iteration (this is guaranteed to be slower, of course, but it would be nice to see the amount of overhead that occurs with inefficient copying...)
+- GPU code where a work-group barrier is initiated after each thread is done its work (equivalent to the regular GPU code, but with one extra line...)
+
+## TODO
+
+- figure out how OpenCL manages memory (when are buffers cleared on the GPU?)
+- figure out how to view the OpenCL assembly code if possible (is warp divergence happening?)
+
