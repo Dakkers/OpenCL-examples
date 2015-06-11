@@ -10,10 +10,14 @@ timing results of vectors added together on a CPU vs GPU. the size of the vector
 - CPU code
 - GPU code equivalent
 - GPU code where the buffers are created and destroyed each iteration (this is guaranteed to be slower, of course, but it would be nice to see the amount of overhead that occurs with inefficient copying...)
+- GPU code where the number of threads spawned is equal to the size of the vector, and each thread adds one element
 
 todo:
 
 - GPU code where a work-group barrier is initiated after each thread is done its work (equivalent to the regular GPU code, but with one extra line...)
+
+### results
+so far, the third version (each thread doing only one element) is the fastest, and I'm trying to understand why.
 
 ## TODO
 
