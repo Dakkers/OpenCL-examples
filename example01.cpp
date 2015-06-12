@@ -3,16 +3,16 @@
 #include <ctime>
 
 
-    void compareResults (double CPUtime, double GPUtime, int trial) {
-        double time_ratio = (CPUtime / GPUtime);
-        std::cout << "VERSION "   << trial   << " -----------" << std::endl;
-        std::cout << "CPU time: " << CPUtime << std::endl;
-        std::cout << "GPU time: " << GPUtime << std::endl;
-        std::cout << "GPU is ";
-        if (time_ratio > 1)
-            std::cout << time_ratio << " times faster!" << std::endl;
-        else
-            std::cout << (1/time_ratio) << " times slower :(" << std::endl;
+void compareResults (double CPUtime, double GPUtime, int trial) {
+    double time_ratio = (CPUtime / GPUtime);
+    std::cout << "VERSION "   << trial   << " -----------" << std::endl;
+    std::cout << "CPU time: " << CPUtime << std::endl;
+    std::cout << "GPU time: " << GPUtime << std::endl;
+    std::cout << "GPU is ";
+    if (time_ratio > 1)
+        std::cout << time_ratio << " times faster!" << std::endl;
+    else
+        std::cout << (1/time_ratio) << " times slower :(" << std::endl;
 }
 
 
@@ -38,6 +38,7 @@ double timeAddVectorsCPU(int n, int k) {
     duration = (std::clock() - start) / (double) CLOCKS_PER_SEC;
     return duration;
 }
+
 
 int main() {
     // get all platforms (drivers), e.g. NVIDIA
@@ -65,9 +66,6 @@ int main() {
 
     cl::Context context({default_device});
     cl::Program::Sources sources;
-
-    std::cout << CL_DEVICE_MAX_WORK_ITEM_SIZES << std::endl;
-    exit(1);
 
     // calculates for each element; C = A + B
     std::string kernel_code=
