@@ -41,3 +41,10 @@ so far, the third version (each thread doing only one element) is the fastest, a
 - figure out how OpenCL manages memory (when are buffers cleared on the GPU?)
 - figure out how to view the OpenCL assembly code if possible (is warp divergence happening?)
 
+## Some Notes
+From the [guide on programming OpenCL for NVIDIA](http://www.nvidia.com/content/cudazone/download/OpenCL/NVIDIA_OpenCL_ProgrammingGuide.pdf):
+
+- **CUDA streaming multiprocessor** corresponds to an OpenCL compute unit
+- **CUDA thread** corresponds to an OpenCL work-item
+- **CUDA thread block** corresponds to an OpenCL work-group
+

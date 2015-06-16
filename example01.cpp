@@ -73,13 +73,13 @@ int main() {
         //  timing will be done on the host.
         "   void kernel looped_add(global const int* v1, global const int* v2, global int* v3, "
         "                          global const int* constants) {"
-        "       int ID, Nthreads, n, k, ratio, start, stop;"
+        "       int ID, NUM_GLOBAL_WITEMS, n, k, ratio, start, stop;"
         "       ID = get_global_id(0);"
-        "       Nthreads = get_global_size(0);"
+        "       NUM_GLOBAL_WITEMS = get_global_size(0);"
         "       n = constants[0];"  // size of vectors
         "       k = constants[1];"  // number of loop iterations
         ""
-        "       ratio = (n / Nthreads);" // elements per thread
+        "       ratio = (n / NUM_GLOBAL_WITEMS);" // elements per thread
         "       start = ratio * ID;"
         "       stop  = ratio * (ID+1);"
         ""
@@ -92,12 +92,12 @@ int main() {
         ""
         "   void kernel add(global const int* v1, global const int* v2, global int* v3, "
         "                   global const int* constants) {"
-        "       int ID, Nthreads, n, ratio, start, stop;"
+        "       int ID, NUM_GLOBAL_WITEMS, n, ratio, start, stop;"
         "       ID = get_global_id(0);"
-        "       Nthreads = get_global_size(0);"
+        "       NUM_GLOBAL_WITEMS = get_global_size(0);"
         "       n = constants[0];"
         ""
-        "       ratio = (n / Nthreads);"
+        "       ratio = (n / NUM_GLOBAL_WITEMS);"
         "       start = ratio * ID;"
         "       stop  = ratio * (ID+1);"
         ""
@@ -120,10 +120,9 @@ int main() {
         exit(1);
     }
 
-    int n, k, Nthreads; 
-    n = 128000;  // size of vectors
-    k = 1000;   // number of loop iterations
-    Nthreads = 128;
+    const int n = 131072; // size of vectors (32 * 512 * 8)
+    const int k = 1000;   // number of loop iterations
+    const int NUM_GLOBAL_WITEMS = 32 * 512;
     int constants[2] = {n, k};
 
     // run the CPU code
@@ -133,7 +132,7 @@ int main() {
     // adds the same two vectors multiple times -- i.e. it's equivalent to the
     // host (CPU) code above, but with some necessary overhead.
     cl::CommandQueue queue(context, default_device);
-    cl::KernelFunctor add(cl::Kernel(program, "add"), queue, cl::NullRange, cl::NDRange(Nthreads), cl::NullRange);
+    cl::KernelFunctor add(cl::Kernel(program, "add"), queue, cl::NullRange, cl::NDRange(NUM_GLOBAL_WITEMS), cl::NDRange(32));
     cl::Kernel looped_add = cl::Kernel(program, "looped_add");
     cl::Kernel add_single = cl::Kernel(program, "add_single");
 
@@ -166,7 +165,9 @@ int main() {
     looped_add.setArg(1, buffer_B);
     looped_add.setArg(2, buffer_C);
     looped_add.setArg(3, buffer_constants);
-    queue.enqueueNDRangeKernel(looped_add, cl::NullRange, 32, cl::NullRange);
+    queue.enqueueNDRangeKernel(looped_add, cl::NullRange,      // kernel, offset
+                               cl::NDRange(NUM_GLOBAL_WITEMS), // global number of work items
+                               cl::NDRange(32));               // local number (per group)
 
     // read result from GPU to here; including for the sake of timing
     queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*n, C);
