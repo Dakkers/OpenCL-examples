@@ -1,6 +1,7 @@
 #include <iostream>
-#include "CL/cl.hpp"
 #include <ctime>
+#include <string.h>
+#include "../CL/cl.hpp"
 
 
 void compareResults (double CPUtime, double GPUtime, int trial) {
@@ -30,9 +31,8 @@ double timeAddVectorsCPU(int n, int k) {
 
     start = std::clock();
     for (int i=0; i<k; i++) {
-        for (int j=0; j<n; j++) {
+        for (int j=0; j<n; j++)
             C[j] = A[j] + B[j];
-        }
     }
 
     duration = (std::clock() - start) / (double) CLOCKS_PER_SEC;
@@ -40,7 +40,22 @@ double timeAddVectorsCPU(int n, int k) {
 }
 
 
-int main() {
+int main(int argc, char* argv[]) {
+
+    for (int j=0; j<argc; j++)
+        std::cout << argv[j] << std::endl;
+
+    bool verbose;
+    if (argc == 1 || std::strcmp(argv[1], "0") == 0)
+        verbose = true;
+    else
+        verbose = false;
+    
+    const int n = 131072;                    // size of vectors (32 * 512 * 8)
+    const int k = 1000;                      // number of loop iterations
+    const int NUM_GLOBAL_WITEMS = 32 * 512;  // number of threads for versions 1, 2
+    int constants[2] = {n, k};
+
     // get all platforms (drivers), e.g. NVIDIA
     std::vector<cl::Platform> all_platforms;
     cl::Platform::get(&all_platforms);
@@ -71,7 +86,7 @@ int main() {
     std::string kernel_code=
         //  is equivalent to the host's "time_add_vectors" function, except the
         //  timing will be done on the host.
-        "   void kernel looped_add(global const int* v1, global const int* v2, global int* v3, "
+        "   void kernel add_looped(global const int* v1, global const int* v2, global int* v3, "
         "                          global const int* constants) {"
         "       int ID, NUM_GLOBAL_WITEMS, n, k, ratio, start, stop;"
         "       ID = get_global_id(0);"
@@ -105,12 +120,23 @@ int main() {
         "           v3[i] = v1[i] + v2[i];"
         "   }"
         ""
-        "   void kernel add_single(global const int* v1, global const int* v2, global int* v3, "
-        "                          global const int* constants) { "
-        "       int k = constants[1];"
+        "   void kernel add_single(global const int* v1, global const int* v2, global int* v3) { "
         "       int ID = get_global_id(0);"
-        "       for (int i=0; i<k; i++)"
-        "           v3[ID] = v1[ID] + v2[ID];"
+        "       v3[ID] = v1[ID] + v2[ID];"
+        "   }"
+        ""  // same as add_single, but with the overhead of the looped functions
+        "   void kernel add_single_overhead(global const int* v1, global const int* v2, global int* v3,"
+        "                                   global const int* constants) {"
+        "       int ID, NUM_GLOBAL_WITEMS, n, ratio, start, stop;"
+        "       ID = get_global_id(0);"
+        "       NUM_GLOBAL_WITEMS = get_global_size(0);"
+        "       n = constants[0];"
+        ""
+        "       ratio = (n / NUM_GLOBAL_WITEMS);"
+        "       start = ratio * ID;"
+        "       stop  = ratio * (ID+1);"
+        ""
+        "       v3[ID] = v1[ID] + v2[ID];"
         "   }";
     sources.push_back({kernel_code.c_str(), kernel_code.length()});
 
@@ -120,21 +146,15 @@ int main() {
         exit(1);
     }
 
-    const int n = 131072; // size of vectors (32 * 512 * 8)
-    const int k = 1000;   // number of loop iterations
-    const int NUM_GLOBAL_WITEMS = 32 * 512;
-    int constants[2] = {n, k};
-
     // run the CPU code
     float CPUtime = timeAddVectorsCPU(n, k);
 
-    // run some GPU code; this block allocates space, writes buffers, and then
-    // adds the same two vectors multiple times -- i.e. it's equivalent to the
-    // host (CPU) code above, but with some necessary overhead.
+    // set up kernels and vectors for GPU code
     cl::CommandQueue queue(context, default_device);
-    cl::KernelFunctor add(cl::Kernel(program, "add"), queue, cl::NullRange, cl::NDRange(NUM_GLOBAL_WITEMS), cl::NDRange(32));
-    cl::Kernel looped_add = cl::Kernel(program, "looped_add");
+    cl::Kernel add_looped = cl::Kernel(program, "add_looped");
+    cl::Kernel add        = cl::Kernel(program, "add");
     cl::Kernel add_single = cl::Kernel(program, "add_single");
+    cl::Kernel add_single_overhead = cl::Kernel(program, "add_single_overhead");
 
     // construct vectors
     int A[n], B[n], C[n];
@@ -144,6 +164,7 @@ int main() {
         C[i] = 0;
     }
 
+    // VERSION 1 ==========================================
     // start timer
     double GPUtime1;
     std::clock_t start_time;
@@ -161,20 +182,20 @@ int main() {
     queue.enqueueWriteBuffer(buffer_constants, CL_TRUE, 0, sizeof(int)*2, constants);
 
     // RUN ZE KERNEL
-    looped_add.setArg(0, buffer_A);
-    looped_add.setArg(1, buffer_B);
-    looped_add.setArg(2, buffer_C);
-    looped_add.setArg(3, buffer_constants);
-    queue.enqueueNDRangeKernel(looped_add, cl::NullRange,      // kernel, offset
+    add_looped.setArg(0, buffer_A);
+    add_looped.setArg(1, buffer_B);
+    add_looped.setArg(2, buffer_C);
+    add_looped.setArg(3, buffer_constants);
+    queue.enqueueNDRangeKernel(add_looped, cl::NullRange,      // kernel, offset
                                cl::NDRange(NUM_GLOBAL_WITEMS), // global number of work items
                                cl::NDRange(32));               // local number (per group)
 
     // read result from GPU to here; including for the sake of timing
     queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*n, C);
     GPUtime1 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
+    queue.enqueueBarrier();
 
-
-    // do the same thing, except copy the arrays over every iteration
+    // VERSION 2 ==========================================
     double GPUtime2;
     start_time = std::clock();
 
@@ -187,43 +208,68 @@ int main() {
         queue.enqueueWriteBuffer(buffer_B2, CL_TRUE, 0, sizeof(int)*n, B);
         queue.enqueueWriteBuffer(buffer_constants2, CL_TRUE, 0, sizeof(int)*2, constants);
 
-        add(buffer_A2, buffer_B2, buffer_C2, buffer_constants2);
+        add_looped.setArg(0, buffer_A);
+        add_looped.setArg(1, buffer_B);
+        add_looped.setArg(2, buffer_C);
+        add_looped.setArg(3, buffer_constants);
+        queue.enqueueNDRangeKernel(add, cl::NullRange, cl::NDRange(NUM_GLOBAL_WITEMS), cl::NDRange(32));
     }
     queue.enqueueReadBuffer(buffer_C2, CL_TRUE, 0, sizeof(int)*n, C);
     GPUtime2 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
+    queue.enqueueBarrier();
 
-
-    // similar to the first trial, except that each element is done
-    // by one thread, instead of multiple elements per thread
-    
-
-    // start timer
+    // VERSION 3 ==========================================
     double GPUtime3;
     start_time = std::clock();
 
     cl::Buffer buffer_A3(context, CL_MEM_READ_WRITE, sizeof(int)*n);
     cl::Buffer buffer_B3(context, CL_MEM_READ_WRITE, sizeof(int)*n);
     cl::Buffer buffer_C3(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_constants3(context, CL_MEM_READ_ONLY, sizeof(int)*2);
     queue.enqueueWriteBuffer(buffer_A3, CL_TRUE, 0, sizeof(int)*n, A);
     queue.enqueueWriteBuffer(buffer_B3, CL_TRUE, 0, sizeof(int)*n, B);
-    queue.enqueueWriteBuffer(buffer_constants3, CL_TRUE, 0, sizeof(int)*2, constants);
 
-    // run it
     add_single.setArg(0, buffer_A3);
     add_single.setArg(1, buffer_B3);
     add_single.setArg(2, buffer_C3);
-    add_single.setArg(3, buffer_constants3);
-    queue.enqueueNDRangeKernel(add_single, cl::NDRange(n), cl::NDRange(32), cl::NullRange);
+    queue.enqueueNDRangeKernel(add_single, cl::NullRange, cl::NDRange(n), cl::NDRange(32));
 
     // end timer
     queue.enqueueReadBuffer(buffer_C3, CL_TRUE, 0, sizeof(int)*n, C);
     GPUtime3 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
 
+    // VERSION 4 ==========================================
+    double GPUtime4;
+    start_time = std::clock();
+
+    cl::Buffer buffer_A4(context, CL_MEM_READ_WRITE, sizeof(int)*n);
+    cl::Buffer buffer_B4(context, CL_MEM_READ_WRITE, sizeof(int)*n);
+    cl::Buffer buffer_C4(context, CL_MEM_READ_WRITE, sizeof(int)*n);
+    cl::Buffer buffer_constants4(context, CL_MEM_READ_ONLY, sizeof(int)*2);
+    queue.enqueueWriteBuffer(buffer_A4, CL_TRUE, 0, sizeof(int)*n, A);
+    queue.enqueueWriteBuffer(buffer_B4, CL_TRUE, 0, sizeof(int)*n, B);
+    queue.enqueueWriteBuffer(buffer_constants4, CL_TRUE, 0, sizeof(int)*2, constants);
+
+    add_single_overhead.setArg(0, buffer_A4);
+    add_single_overhead.setArg(1, buffer_B4);
+    add_single_overhead.setArg(2, buffer_C4);
+    add_single_overhead.setArg(3, buffer_constants4);
+    queue.enqueueNDRangeKernel(add_single_overhead, cl::NullRange, cl::NDRange(n), cl::NDRange(32));
+
+    // end timer
+    queue.enqueueReadBuffer(buffer_C4, CL_TRUE, 0, sizeof(int)*n, C);
+    GPUtime4 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
+    
     // let's compare!
-    compareResults(CPUtime, GPUtime1, 1);
-    compareResults(CPUtime, GPUtime2, 2);
-    compareResults(CPUtime, GPUtime3, 3);
+    double GPUtimes[4] = {GPUtime1, GPUtime2, GPUtime3, GPUtime4};
+    if (verbose) {
+        for (int i=0; i<4; i++)
+            compareResults(CPUtime, GPUtimes[i], i+1);
+    } else {
+        std::cout << CPUtime << ",";
+        for (int i=0; i<3; i++)
+            std::cout << GPUtimes[i] << ",";
+        std::cout << GPUtimes[4] << std::endl;
+    }
     return 0;
 }
 
