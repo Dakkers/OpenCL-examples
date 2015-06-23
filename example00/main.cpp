@@ -1,5 +1,5 @@
 #include <iostream>
-#include "CL/cl.hpp"
+#include "../CL/cl.hpp"
 
 int main() {
     // get all platforms (drivers), e.g. NVIDIA

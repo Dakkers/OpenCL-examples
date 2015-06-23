@@ -2,6 +2,7 @@
 #include <ctime>
 #include "../CL/cl.hpp"
 
+#define NUM_GLOBAL_WITEMS 1024
 
 void compareResults (double CPUtime, double GPUtime, int trial) {
     double time_ratio = (CPUtime / GPUtime);
@@ -39,6 +40,30 @@ double timeAddVectorsCPU(int n, int k) {
 }
 
 
+void warmup(cl::Context &context, cl::CommandQueue &queue, 
+            cl::Kernel &add, int A[], int B[], int n) {
+    int C[n];
+    // allocate space
+    cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(int) * n);
+    cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(int) * n);
+    cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(int) * n);
+
+    // push write commands to queue
+    queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*n, A);
+    queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*n, B);
+
+    // RUN ZE KERNEL
+    add.setArg(1, buffer_B);
+    add.setArg(0, buffer_A);
+    add.setArg(2, buffer_C);
+    for (int i=0; i<5; i++)
+        queue.enqueueNDRangeKernel(add, cl::NullRange, cl::NDRange(NUM_GLOBAL_WITEMS), cl::NDRange(32));              
+   
+    queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*n, C); 
+    queue.finish(); 
+}
+
+
 int main(int argc, char* argv[]) {
 
     bool verbose;
@@ -47,10 +72,9 @@ int main(int argc, char* argv[]) {
     else
         verbose = false;
     
-    const int n = 131072;                    // size of vectors (32 * 512 * 8)
-    const int k = 1000;                      // number of loop iterations
-    const int NUM_GLOBAL_WITEMS = 32 * 512;  // number of threads for versions 1, 2
-    int constants[2] = {n, k};
+    const int n = 8*32*512;             // size of vectors
+    const int k = 10000;                // number of loop iterations
+    // const int NUM_GLOBAL_WITEMS = 1024; // number of threads
 
     // get all platforms (drivers), e.g. NVIDIA
     std::vector<cl::Platform> all_platforms;
@@ -80,15 +104,17 @@ int main(int argc, char* argv[]) {
 
     // calculates for each element; C = A + B
     std::string kernel_code=
-        //  is equivalent to the host's "time_add_vectors" function, except the
-        //  timing will be done on the host.
-        "   void kernel add_looped(global const int* v1, global const int* v2, global int* v3, "
-        "                          global const int* constants) {"
-        "       int ID, NUM_GLOBAL_WITEMS, n, k, ratio, start, stop;"
+        "   void kernel add(global const int* v1, global const int* v2, global int* v3) {"
+        "       int ID;"
+        "       ID = get_global_id(0);"
+        "       v3[ID] = v1[ID] + v2[ID];"
+        "   }"
+        ""
+        "   void kernel add_looped_1(global const int* v1, global const int* v2, global int* v3, "
+        "                          const int n, const int k) {"
+        "       int ID, NUM_GLOBAL_WITEMS, ratio, start, stop;"
         "       ID = get_global_id(0);"
         "       NUM_GLOBAL_WITEMS = get_global_size(0);"
-        "       n = constants[0];"  // size of vectors
-        "       k = constants[1];"  // number of loop iterations
         ""
         "       ratio = (n / NUM_GLOBAL_WITEMS);" // elements per thread
         "       start = ratio * ID;"
@@ -101,41 +127,23 @@ int main(int argc, char* argv[]) {
         "       }"
         "   }"
         ""
-        "   void kernel add(global const int* v1, global const int* v2, global int* v3, "
-        "                   global const int* constants) {"
-        "       int ID, NUM_GLOBAL_WITEMS, n, ratio, start, stop;"
+        "   void kernel add_looped_2(global const int* v1, global const int* v2, global int* v3,"
+        "                            const int n, const int k) {"
+        "       int ID, NUM_GLOBAL_WITEMS, step;"
         "       ID = get_global_id(0);"
         "       NUM_GLOBAL_WITEMS = get_global_size(0);"
-        "       n = constants[0];"
+        "       step = (n / NUM_GLOBAL_WITEMS);"
         ""
-        "       ratio = (n / NUM_GLOBAL_WITEMS);"
-        "       start = ratio * ID;"
-        "       stop  = ratio * (ID+1);"
-        ""
-        "       for (int i=start; i<stop; i++)"
-        "           v3[i] = v1[i] + v2[i];"
+        "       int i,j;"
+        "       for (i=0; i<k; i++) {"
+        "           for (j=ID; j<n; j+=step)"
+        "               v3[j] = v1[j] + v2[j];"
+        "       }"
         "   }"
-        ""
+        ""    
         "   void kernel add_single(global const int* v1, global const int* v2, global int* v3, "
-        "                          global const int* constants) { "
-        "       int k  = constants[1];"
+        "                          const int k) { "
         "       int ID = get_global_id(0);"
-        "       for (int i=0; i<k; i++)"
-        "           v3[ID] = v1[ID] + v2[ID];"
-        "   }"
-        ""  // same as add_single, but with the overhead (indexing, determining ratio) of versions 01 and 02
-        "   void kernel add_single_overhead(global const int* v1, global const int* v2, global int* v3,"
-        "                                   global const int* constants) {"
-        "       int ID, NUM_GLOBAL_WITEMS, n, k, ratio, start, stop;"
-        "       ID = get_global_id(0);"
-        "       NUM_GLOBAL_WITEMS = get_global_size(0);"
-        "       n = constants[0];"
-        "       k = constants[1];"
-        ""
-        "       ratio = (n / NUM_GLOBAL_WITEMS);"
-        "       start = ratio * ID;"
-        "       stop  = ratio * (ID+1);"
-        ""
         "       for (int i=0; i<k; i++)"
         "           v3[ID] = v1[ID] + v2[ID];"
         "   }";
@@ -152,20 +160,23 @@ int main(int argc, char* argv[]) {
 
     // set up kernels and vectors for GPU code
     cl::CommandQueue queue(context, default_device);
-    cl::Kernel add_looped = cl::Kernel(program, "add_looped");
-    cl::Kernel add        = cl::Kernel(program, "add");
-    cl::Kernel add_single = cl::Kernel(program, "add_single");
-    cl::Kernel add_single_overhead = cl::Kernel(program, "add_single_overhead");
+    cl::Kernel add          = cl::Kernel(program, "add");
+    cl::Kernel add_looped_1 = cl::Kernel(program, "add_looped_1");
+    cl::Kernel add_looped_2 = cl::Kernel(program, "add_looped_2");
+    cl::Kernel add_single   = cl::Kernel(program, "add_single");
 
     // construct vectors
     int A[n], B[n], C[n];
     for (int i=0; i<n; i++) {
         A[i] = i;
         B[i] = n - i - 1;
-        C[i] = 0;
     }
-    std::clock_t start_time;
 
+    // attempt at warm-up...
+    warmup(context, queue, add, A, B, n);
+    queue.finish();
+
+    std::clock_t start_time;
 
     // VERSION 1 ==========================================
     // start timer
@@ -176,119 +187,51 @@ int main(int argc, char* argv[]) {
     cl::Buffer buffer_A(context, CL_MEM_READ_WRITE, sizeof(int) * n);
     cl::Buffer buffer_B(context, CL_MEM_READ_WRITE, sizeof(int) * n);
     cl::Buffer buffer_C(context, CL_MEM_READ_WRITE, sizeof(int) * n);
-    cl::Buffer buffer_constants(context, CL_MEM_READ_ONLY, sizeof(int) * 2);
 
     // push write commands to queue
     queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*n, A);
     queue.enqueueWriteBuffer(buffer_B, CL_TRUE, 0, sizeof(int)*n, B);
-    queue.enqueueWriteBuffer(buffer_constants, CL_TRUE, 0, sizeof(int)*2, constants);
 
     // RUN ZE KERNEL
-    add_looped.setArg(0, buffer_A);
-    add_looped.setArg(1, buffer_B);
-    add_looped.setArg(2, buffer_C);
-    add_looped.setArg(3, buffer_constants);
-    queue.enqueueNDRangeKernel(add_looped, cl::NullRange,      // kernel, offset
-                               cl::NDRange(NUM_GLOBAL_WITEMS), // global number of work items
-                               cl::NDRange(32));               // local number (per group)
+    add_looped_1.setArg(0, buffer_A);
+    add_looped_1.setArg(1, buffer_B);
+    add_looped_1.setArg(2, buffer_C);
+    add_looped_1.setArg(3, n);
+    add_looped_1.setArg(4, k);
+    queue.enqueueNDRangeKernel(add_looped_1, cl::NullRange,  // kernel, offset
+            cl::NDRange(NUM_GLOBAL_WITEMS), // global number of work items
+            cl::NDRange(32));               // local number (per group)
 
     // read result from GPU to here; including for the sake of timing
     queue.enqueueReadBuffer(buffer_C, CL_TRUE, 0, sizeof(int)*n, C);
-    queue.enqueueBarrier();
+    queue.finish();
     GPUtime1 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
+
 
     // VERSION 2 ==========================================
     double GPUtime2;
-    start_time = std::clock();
 
     cl::Buffer buffer_A2(context, CL_MEM_READ_WRITE, sizeof(int)*n);
     cl::Buffer buffer_B2(context, CL_MEM_READ_WRITE, sizeof(int)*n);
     cl::Buffer buffer_C2(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_constants2(context, CL_MEM_READ_ONLY, sizeof(int)*2);
-    for (int i=0; i<k; i++) {
-        queue.enqueueWriteBuffer(buffer_A2, CL_TRUE, 0, sizeof(int)*n, A);
-        queue.enqueueWriteBuffer(buffer_B2, CL_TRUE, 0, sizeof(int)*n, B);
-        queue.enqueueWriteBuffer(buffer_constants2, CL_TRUE, 0, sizeof(int)*2, constants);
+    queue.enqueueWriteBuffer(buffer_A2, CL_TRUE, 0, sizeof(int)*n, A);
+    queue.enqueueWriteBuffer(buffer_B2, CL_TRUE, 0, sizeof(int)*n, B);
 
-        add_looped.setArg(0, buffer_A2);
-        add_looped.setArg(1, buffer_B2);
-        add_looped.setArg(2, buffer_C2);
-        add_looped.setArg(3, buffer_constants);
-        queue.enqueueNDRangeKernel(add, cl::NullRange, cl::NDRange(NUM_GLOBAL_WITEMS), cl::NDRange(32));
-    }
+    start_time = std::clock();
+    add_looped_2.setArg(0, buffer_A2);
+    add_looped_2.setArg(1, buffer_B2);
+    add_looped_2.setArg(2, buffer_C2);
+    add_looped_2.setArg(3, n);
+    add_looped_2.setArg(4, k);
+    
+    queue.enqueueNDRangeKernel(add_looped_2, cl::NullRange, cl::NDRange(NUM_GLOBAL_WITEMS), cl::NDRange(32));
     queue.enqueueReadBuffer(buffer_C2, CL_TRUE, 0, sizeof(int)*n, C);
-    queue.enqueueBarrier();
+    queue.finish();
     GPUtime2 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
 
-    // VERSION 3 ==========================================
-    double GPUtime3;
-    start_time = std::clock();
-
-    cl::Buffer buffer_A3(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_B3(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_C3(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_constants3(context, CL_MEM_READ_ONLY, sizeof(int) * 2);
-    queue.enqueueWriteBuffer(buffer_A3, CL_TRUE, 0, sizeof(int)*n, A);
-    queue.enqueueWriteBuffer(buffer_B3, CL_TRUE, 0, sizeof(int)*n, B);
-    queue.enqueueWriteBuffer(buffer_constants3, CL_TRUE, 0, sizeof(int)*2, constants);
-
-    add_single.setArg(0, buffer_A3);
-    add_single.setArg(1, buffer_B3);
-    add_single.setArg(2, buffer_C3);
-    add_single.setArg(3, buffer_constants3);
-    queue.enqueueNDRangeKernel(add_single, cl::NullRange, cl::NDRange(n), cl::NDRange(32));
-
-    queue.enqueueReadBuffer(buffer_C3, CL_TRUE, 0, sizeof(int)*n, C);
-    queue.enqueueBarrier();
-    GPUtime3 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
-
-    // VERSION 4 ==========================================
-    double GPUtime4;
-    start_time = std::clock();
-
-    cl::Buffer buffer_A4(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_B4(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_C4(context, CL_MEM_READ_WRITE, sizeof(int)*n);
-    cl::Buffer buffer_constants4(context, CL_MEM_READ_ONLY, sizeof(int)*2);
-    queue.enqueueWriteBuffer(buffer_A4, CL_TRUE, 0, sizeof(int)*n, A);
-    queue.enqueueWriteBuffer(buffer_B4, CL_TRUE, 0, sizeof(int)*n, B);
-    queue.enqueueWriteBuffer(buffer_constants4, CL_TRUE, 0, sizeof(int)*2, constants);
-
-    add_single_overhead.setArg(0, buffer_A4);
-    add_single_overhead.setArg(1, buffer_B4);
-    add_single_overhead.setArg(2, buffer_C4);
-    add_single_overhead.setArg(3, buffer_constants4);
-    queue.enqueueNDRangeKernel(add_single_overhead, cl::NullRange, cl::NDRange(n), cl::NDRange(32));
-
-    queue.enqueueReadBuffer(buffer_C4, CL_TRUE, 0, sizeof(int)*n, C);
-    queue.enqueueBarrier();
-    GPUtime4 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
-
-    // VERSION 5 ==========================================
-    double GPUtime5;
-    start_time = std::clock();
-
-    cl::Buffer buffer_A5(context, CL_MEM_READ_WRITE, sizeof(int) * n);
-    cl::Buffer buffer_B5(context, CL_MEM_READ_WRITE, sizeof(int) * n);
-    cl::Buffer buffer_C5(context, CL_MEM_READ_WRITE, sizeof(int) * n);
-    cl::Buffer buffer_constants5(context, CL_MEM_READ_ONLY, sizeof(int) * 2);
-    queue.enqueueWriteBuffer(buffer_A5, CL_TRUE, 0, sizeof(int)*n, A);
-    queue.enqueueWriteBuffer(buffer_B5, CL_TRUE, 0, sizeof(int)*n, B);
-    queue.enqueueWriteBuffer(buffer_constants5, CL_TRUE, 0, sizeof(int)*2, constants);
-
-    add_looped.setArg(0, buffer_A5);
-    add_looped.setArg(1, buffer_B5);
-    add_looped.setArg(2, buffer_C5);
-    add_looped.setArg(3, buffer_constants5);
-    queue.enqueueNDRangeKernel(add_looped, cl::NullRange, cl::NDRange(n), cl::NDRange(32));
-
-    queue.enqueueReadBuffer(buffer_C5, CL_TRUE, 0, sizeof(int)*n, C);
-    queue.enqueueBarrier();
-    GPUtime5 = (std::clock() - start_time) / (double) CLOCKS_PER_SEC;
-    
     // let's compare!
-    const int NUM_VERSIONS = 5;
-    double GPUtimes[NUM_VERSIONS] = {GPUtime1, GPUtime2, GPUtime3, GPUtime4, GPUtime5};
+    const int NUM_VERSIONS = 2;
+    double GPUtimes[NUM_VERSIONS] = {GPUtime1, GPUtime2};
     if (verbose) {
         for (int i=0; i<NUM_VERSIONS; i++)
             compareResults(CPUtime, GPUtimes[i], i+1);

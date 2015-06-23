@@ -6,6 +6,7 @@ This currently runs on OS X, and I'm using local header files instead of global 
 
 ```
 git clone git@github.com:SaintDako/OpenCL-examples.git
+cd OpenCL-examples
 mkdir CL
 curl https://www.khronos.org/registry/cl/api/1.2/cl.hpp -o CL/cl.hpp
 ```

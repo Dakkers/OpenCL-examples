@@ -4,15 +4,17 @@ This example compares the timings of adding vectors on the CPU versus adding vec
 ## Compiling
 
 ```
-clang++ -std=c++0x -framework OpenCL version01.cpp -o version01.out
+clang++ -std=c++0x -framework OpenCL main.cpp -o main.out
 ```
 
 To ignore deprecation warnings, add the flag `-Wno-deprecated-declarations`.
 
+Run from this directory, as a relative path is used for the OpenCL header file (for now).
+
 ## About
-The code runs the following implementations of adding large vectors (131072 elements; 8 * 32 * 512). The vectors are added together 1000 times.
+The code runs the following implementations of adding large vectors (131072 elements; 8 * 32 * 512). The vectors are added together 10000 times.
 
 - CPU
-- GPU, where 32 * 512 threads are spawned and each thread thus gets 8 elements to calculate
-- GPU, same as before but each iteration involves writing the buffers (to demonstrate overhead)
-- GPU, where 8 * 32 * 512 threads are spawned - one for each element
+- GPU, where 1024 threads are spawned and each thread thus gets 128 elements to calculate; there are two implementations of this:
+  - (Version 1) each thread gets 128 sequential elements (thread 0 gets 0-127, 1 gets 128-255, ...)
+  - (Version 2) each thread gets 128 elements, but coalescing happens (thread 0 gets 0,128,256..., thread 1 gets 1,129,257...)
