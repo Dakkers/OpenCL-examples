@@ -15,7 +15,10 @@ curl https://www.khronos.org/registry/cl/api/1.2/cl.hpp -o CL/cl.hpp
 this example is based off of [this example](simpleopencl.blogspot.ca/2013/06/tutorial-simple-start-with-opencl-and-c.html) (example-ception), but it goes a bit further. In the blogspot example, two 10-element vectors are created and a thread is used for each pair of elements. In this example, 10 threads are spawned but two 100-element vectors are used, and it is shown how to split up a specific number of elements per thread.
 
 ## example 01
-See the README in the folder.
+Measures the duration of adding two vectors. See the README in the folder for more details.
+
+## example 02
+Demonstrates that one array can be modified several times without having to re-read and re-write data to and from the GPU.
 
 ## TODO
 
