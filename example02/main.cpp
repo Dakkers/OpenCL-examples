@@ -1,7 +1,11 @@
 #include <iostream>
 #include <algorithm>
 #include <iterator>
-#include "../CL/cl.hpp"
+#ifdef __APPLE__
+    #include <OpenCL/cl.hpp>
+#else
+    #include <CL/cl.hpp>
+#endif
 
 using namespace std;
 using namespace cl;
@@ -25,7 +29,7 @@ Platform getPlatform() {
 }
 
 
-Device getDevice(cl::Platform platform, int i, bool display=false) {
+Device getDevice(Platform platform, int i, bool display=false) {
     /* Returns the deviced specified by the index i on platform.
      * If display is true, then all of the platforms are listed.
      */
@@ -59,7 +63,6 @@ int main() {
     Context context({default_device});
     Program::Sources sources;
 
-    // calculates for each element; C = A + B
     std::string kernel_code=
         "void kernel multiply_by(global int* A, const int c) {"
         "   A[get_global_id(0)] = c * A[get_global_id(0)];"
@@ -76,12 +79,12 @@ int main() {
     CommandQueue queue(context, default_device);
     queue.enqueueWriteBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*n, A);
 
-    Kernel multiply_by = cl::Kernel(program, "multiply_by");
+    Kernel multiply_by = Kernel(program, "multiply_by");
     multiply_by.setArg(0, buffer_A);
 
     for (int c=2; c<=c_max; c++) {
         multiply_by.setArg(1, c);
-        queue.enqueueNDRangeKernel(multiply_by, cl::NullRange, cl::NDRange(n), cl::NDRange(32));
+        queue.enqueueNDRangeKernel(multiply_by, NullRange, NDRange(n), NDRange(32));
     }
 
     queue.enqueueReadBuffer(buffer_A, CL_TRUE, 0, sizeof(int)*n, B);

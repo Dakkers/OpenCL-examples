@@ -1,5 +1,9 @@
 #include <iostream>
-#include "../CL/cl.hpp"
+#ifdef __APPLE__
+    #include <OpenCL/cl.hpp>
+#else
+    #include <CL/cl.hpp>
+#endif
 
 int main() {
     // get all platforms (drivers), e.g. NVIDIA

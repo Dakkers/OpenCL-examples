@@ -1,6 +1,10 @@
 #include <iostream>
 #include <ctime>
-#include "../CL/cl.hpp"
+#ifdef __APPLE__
+    #include <OpenCL/cl.hpp>
+#else
+    #include <CL/cl.hpp>
+#endif
 
 #define NUM_GLOBAL_WITEMS 1024
 

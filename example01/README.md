@@ -1,16 +1,6 @@
 # Example 01
 This example compares the timings of adding vectors on the CPU versus adding vectors on the GPU, the latter of which has different implementations.
 
-## Compiling
-
-```
-clang++ -std=c++0x -framework OpenCL main.cpp -o main.out
-```
-
-To ignore deprecation warnings, add the flag `-Wno-deprecated-declarations`.
-
-Run from this directory, as a relative path is used for the OpenCL header file (for now).
-
 ## About
 The code runs the following implementations of adding large vectors (131072 elements; 8 * 32 * 512). The vectors are added together 10000 times.
 

@@ -2,13 +2,29 @@
 here is my feeble attempt at learning OpenCL, please don't make fun of me too much :hamburger:
 
 ## Configuration
-This currently runs on OS X, and I'm using local header files instead of global header files because I'm unfamiliar with C++. Deal with it. Run the following in a terminal to set up:
+This code uses OpenCL 1.1 on a NVIDIA GPU.
+
+### Linux
+(Only tested on Ubuntu). For NVIDIA GPUs, I've installed the following packages: `nvidia-346 nvidia-346-dev nvidia-346-uvm nvidia-libopencl1-346 nvidia-modprobe nvidia-opencl-icd-346 nvidia-settings`. Since the `opencl-headers` package in the main repository is for OpenCL 1.2, you can get the OpenCL 1.1 header files from [here](http://packages.ubuntu.com/precise/opencl-headers).
+
+Then to compile:
 
 ```
-git clone git@github.com:SaintDako/OpenCL-examples.git
-cd OpenCL-examples
-mkdir CL
-curl https://www.khronos.org/registry/cl/api/1.2/cl.hpp -o CL/cl.hpp
+g++ -std=c++0x main.cpp -o main.out -lOpenCL
+```
+
+### OS X
+OpenCL is installed on OS X by default, but since this code uses the C++ bindings, you'll need to get that too. Get the [official C++ bindings from the OpenCL registr](https://www.khronos.org/registry/cl/api/1.1/cl.hpp) and copy it to the OpenCL framework directory, or do the following:
+
+```
+wget https://www.khronos.org/registry/cl/api/1.1/cl.hpp
+sudo cp cl.hpp /System/Library/Frameworks/OpenCL.framework/Headers/
+```
+
+To compile:
+
+```
+clang++ -std=c++0x -framework OpenCL main.cpp -o main.out
 ```
 
 ## example 00
