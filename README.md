@@ -7,10 +7,16 @@ This code uses OpenCL 1.1 on a NVIDIA GPU.
 ### Linux
 (Only tested on Ubuntu). For NVIDIA GPUs, I've installed the following packages: `nvidia-346 nvidia-346-dev nvidia-346-uvm nvidia-libopencl1-346 nvidia-modprobe nvidia-opencl-icd-346 nvidia-settings`. Since the `opencl-headers` package in the main repository is for OpenCL 1.2, you can get the OpenCL 1.1 header files from [here](http://packages.ubuntu.com/precise/opencl-headers).
 
-Then to compile:
+Then to compile the C++ code:
 
 ```
 g++ -std=c++0x main.cpp -o main.out -lOpenCL
+```
+
+To compile the C code:
+
+```
+gcc main.c -o main.out -lOpenCL
 ```
 
 ### OS X

@@ -3,5 +3,4 @@
 
 # THIS IS MY SWAP
 # (vim swap files)
-*.swp
-*.swo
+.*.s??
