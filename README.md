@@ -19,6 +19,14 @@ To compile the C code:
 gcc main.c -o main.out -lOpenCL
 ```
 
+For examples 04 and 05, you can run
+
+```bash
+make ex04
+make ex05
+make       # makes both!
+```
+
 ### OS X
 OpenCL is installed on OS X by default, but since this code uses the C++ bindings, you'll need to get that too. Get the [official C++ bindings from the OpenCL registr](https://www.khronos.org/registry/cl/api/1.1/cl.hpp) and copy it to the OpenCL framework directory, or do the following:
 
@@ -46,7 +54,10 @@ Demonstrates that one array can be modified several times without having to re-r
 A simple example using the `cl_khr_fp64` extension which allows for usage of doubles instead of floats.
 
 ## example 04
-An example of the CLFFT library for an in-place complex-interleaved transform.
+An example of the CLFFT library for an in-place complex-planar transform. There is also Python code to check the answer, which requires numpy / scipy. The C code requires the CLFFT library to be installed in the root of the repository. See more details in the folder's readme.
+
+## example 05
+Another CLFFT example where an in-place real transform is performed. There's also Python code for checking the answer, which requires numpy / scipy. The C code requires the CLFFT library to be installed in the root of the repository. For instructions on doing this, check out the readme of example04.
 
 ## Some Notes
 From the [guide on programming OpenCL for NVIDIA](http://www.nvidia.com/content/cudazone/download/OpenCL/NVIDIA_OpenCL_ProgrammingGuide.pdf):

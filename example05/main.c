@@ -4,19 +4,50 @@
 #include <clFFT.h>
  
 const char *kernelSource =
-"#pragma OPENCL EXTENSION cl_khr_fp64 : enable                 \n" \ 
-"__kernel void mult(__global double *vR, __global double *vI) {  \n" \
-"    int id;                   \n" \
-"    id = get_global_id(0);    \n" \
-"    vR[id] = 2*vR[id];        \n" \
-"    vI[id] = 2*vI[id];        \n" \
+"#pragma OPENCL EXTENSION cl_khr_fp64 : enable  \n" \
+"__kernel void mult(__global double *v) {       \n" \
+"    int id, v_re, v_im;       \n" \
+"    id   = get_global_id(0);  \n" \
+"    v_re = 2*id;              \n" \
+"    v_im = v_re + 1;          \n" \
+"                              \n" \
+"    v[v_re] = 2*v[v_re];      \n" \
+"    v[v_im] = 4*v[v_im];      \n" \
 "}                             \n" \
 "\n" ;
+
+
+int roundUpToNearest(int x, int n) {
+    /* Rounds x UP to nearest multiple of n. */
+    int x_rem = x % n;
+    if (x_rem == 0)
+        return x;
+
+    return x + (n - x_rem);
+}
+
  
 int main( int argc, char* argv[] ) {
-    // problem-related declarations
+    /* This setup is a bit tricky. Since we're doing a real transform, CLFFT
+     * requires N+2 elements in the array. This is because only N/2 + 1 numbers
+     * are calculated, and since each number is complex, it requires 2 elements
+     * for space.
+     *
+     * To avoid warp divergence, we want to avoid any conditionals in the
+     * kernel. Thus we cannot check to see if the thread ID is even or odd to
+     * act on a real number or imaginary number. To do this, one thread should
+     * handle one complex number (one real, one imag), i.e. ID_j should handle
+     * array elements j, j+1.
+     *
+     * But we also need the number of global items to be a multiple of 32 (warp
+     * size). What we can do, for example, N = 128, is pad it by 2 (130),
+     * divide it by 2 (65), round that UP to the nearest 32 (96), multiply that
+     * by 2 (192). The kernel will operate on zeros, but it should be faster
+     * than the scenario with warp divergence. */
+
     unsigned int N = 128;
-    size_t N_bytes = N * sizeof(double);
+    unsigned int N_pad = 2*roundUpToNearest( (N+2)/2, 32 );
+    size_t N_bytes = N_pad * sizeof(double);
 
     // openCL declarations
     cl_platform_id platform;
@@ -35,20 +66,18 @@ int main( int argc, char* argv[] ) {
     clfftSetup(&fftSetup);
  
     // host version of v
-    double *h_vR, *h_vI;  // real & imaginary parts
-    h_vR = (double*) malloc(N_bytes);
-    h_vI = (double*) malloc(N_bytes);
+    double *h_v;  // real & imaginary parts
+    h_v = (double*) malloc(N_bytes);
  
     // initialize v on host
     int i;
     for (i = 0; i < N; i++) {
-        h_vR[i] = i;
-        h_vI[i] = 2*i;
+        h_v[i] = i;
     }
 
     // global & local number of threads
     size_t globalSize, localSize;
-    globalSize = N;
+    globalSize = N_pad / 2;
     localSize = 32;
 
     // setup OpenCL stuff 
@@ -74,51 +103,44 @@ int main( int argc, char* argv[] ) {
     k_mult = clCreateKernel(program, "mult", &err);
  
     // create arrays on host and write them
-    cl_mem d_vR, d_vI;
-    d_vR = clCreateBuffer(context, CL_MEM_READ_WRITE, N_bytes, NULL, NULL);
-    d_vI = clCreateBuffer(context, CL_MEM_READ_WRITE, N_bytes, NULL, NULL);
-    err = clEnqueueWriteBuffer(queue, d_vR, CL_TRUE, 0, N_bytes, h_vR, 0, NULL, NULL);
-    err |= clEnqueueWriteBuffer(queue, d_vI, CL_TRUE, 0, N_bytes, h_vI, 0, NULL, NULL);
+    cl_mem d_v;
+    d_v = clCreateBuffer(context, CL_MEM_READ_WRITE, N_bytes, NULL, NULL);
+    err = clEnqueueWriteBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL);
 
     // create forward plan and set its params
     clfftCreateDefaultPlan(&planHandleForward, context, dim, clLengths);
     clfftSetPlanPrecision(planHandleForward, CLFFT_DOUBLE);
-    clfftSetLayout(planHandleForward, CLFFT_COMPLEX_PLANAR, CLFFT_COMPLEX_PLANAR);
+    clfftSetLayout(planHandleForward, CLFFT_REAL, CLFFT_HERMITIAN_INTERLEAVED);
     clfftSetResultLocation(planHandleForward, CLFFT_INPLACE);
     clfftBakePlan(planHandleForward, 1, &queue, NULL, NULL);
 
     // create backward plan and set its params
     clfftCreateDefaultPlan(&planHandleBackward, context, dim, clLengths);
     clfftSetPlanPrecision(planHandleBackward, CLFFT_DOUBLE);
-    clfftSetLayout(planHandleBackward, CLFFT_COMPLEX_PLANAR, CLFFT_COMPLEX_PLANAR);
+    clfftSetLayout(planHandleBackward, CLFFT_HERMITIAN_INTERLEAVED, CLFFT_REAL);
     clfftSetResultLocation(planHandleBackward, CLFFT_INPLACE);
     clfftBakePlan(planHandleBackward, 1, &queue, NULL, NULL);
 
     // set all of ze kernel args...
-    err  = clSetKernelArg(k_mult, 0, sizeof(cl_mem), &d_vR);
-    err |= clSetKernelArg(k_mult, 1, sizeof(cl_mem), &d_vI);
+    err  = clSetKernelArg(k_mult, 0, sizeof(cl_mem), &d_v);
  
-    // cl_mem array allows for complex_planar transform
-    cl_mem inputBuffers[2] = {0, 0};
-    inputBuffers[0] = d_vR;
-    inputBuffers[1] = d_vI;
-    
     // FFT data, apply psi, IFFT data
-    clfftEnqueueTransform(planHandleForward, CLFFT_FORWARD, 1, &queue, 0, NULL, NULL, &inputBuffers, NULL, NULL);
+    clfftEnqueueTransform(planHandleForward, CLFFT_FORWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
     clFinish(queue);
  
-    err = clEnqueueNDRangeKernel(queue, k_mult, 1, NULL, &globalSize, &localSize, 0, NULL, NULL);
+     err = clEnqueueNDRangeKernel(queue, k_mult, 1, NULL, &globalSize, &localSize, 0, NULL, NULL);
+     clFinish(queue);
 
-    clfftEnqueueTransform(planHandleBackward, CLFFT_BACKWARD, 1, &queue, 0, NULL, NULL, &inputBuffers, NULL, NULL);
+    //clfftEnqueueTransform(planHandleBackward, CLFFT_BACKWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
+    clFinish(queue);
 
     // transfer back
-    clEnqueueReadBuffer(queue, d_vR, CL_TRUE, 0, N_bytes, h_vR, 0, NULL, NULL );
-    clEnqueueReadBuffer(queue, d_vI, CL_TRUE, 0, N_bytes, h_vI, 0, NULL, NULL );
+    clEnqueueReadBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL );
     clFinish(queue);
  
     printf("[  ");
     for (i=0; i<N; i++)
-        printf("(%f, %f)  ", h_vR[i], h_vI[i]);
+        printf("%f ", h_v[i]);
     printf("]\n");
 
     // release clFFT stuff
@@ -127,16 +149,14 @@ int main( int argc, char* argv[] ) {
     clfftTeardown();
  
     // release OpenCL resources
-    clReleaseMemObject(d_vR);
-    clReleaseMemObject(d_vI);
+    clReleaseMemObject(d_v);
     clReleaseProgram(program);
     clReleaseKernel(k_mult);
     clReleaseCommandQueue(queue);
     clReleaseContext(context);
  
     //release host memory
-    free(h_vR);
-    free(h_vI);
+    free(h_v);
  
     return 0;
 }
