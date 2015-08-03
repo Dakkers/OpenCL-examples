@@ -1,5 +1,10 @@
 # compiled files
 *.out
+**/bin
+**/build
+
+# clFFT library
+clFFT
 
 # THIS IS MY SWAP
 # (vim swap files)
