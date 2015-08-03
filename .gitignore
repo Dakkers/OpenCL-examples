@@ -1,7 +1,7 @@
 # compiled files
 *.out
-**/bin
-**/build
+*/bin
+*/build
 
 # clFFT library
 clFFT

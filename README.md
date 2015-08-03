@@ -42,10 +42,11 @@ Measures the duration of adding two vectors. See the README in the folder for mo
 ## example 02
 Demonstrates that one array can be modified several times without having to re-read and re-write data to and from the GPU.
 
-## TODO
+## example 03
+A simple example using the `cl_khr_fp64` extension which allows for usage of doubles instead of floats.
 
-- figure out how OpenCL manages memory (when are buffers cleared on the GPU?)
-- figure out how to view the OpenCL assembly code if possible (is warp divergence happening?)
+## example 04
+An example of the CLFFT library for an in-place complex-interleaved transform.
 
 ## Some Notes
 From the [guide on programming OpenCL for NVIDIA](http://www.nvidia.com/content/cudazone/download/OpenCL/NVIDIA_OpenCL_ProgrammingGuide.pdf):
