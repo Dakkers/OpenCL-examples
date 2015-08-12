@@ -22,8 +22,8 @@ gcc main.c -o main.out -lOpenCL
 For examples 04 and 05, you can run
 
 ```bash
-make ex04
-make ex05
+make ex04  # executable is ./example04/bin/Example
+make ex05  # executable is ./example05/bin/Example
 make       # makes both!
 ```
 
@@ -54,10 +54,17 @@ Demonstrates that one array can be modified several times without having to re-r
 A simple example using the `cl_khr_fp64` extension which allows for usage of doubles instead of floats.
 
 ## example 04
-An example of the CLFFT library for an in-place complex-planar transform. There is also Python code to check the answer, which requires numpy / scipy. The C code requires the CLFFT library to be installed in the root of the repository. See more details in the folder's readme.
+An example of the CLFFT library for an in-place complex-planar transform. There is also Python code to check the answer; FFTW code will be added later, probably.
+
+- clFFT is required; installation instructions can be found inside example04/README.md
+- for Python, numpy and scipy are required
 
 ## example 05
-Another CLFFT example where an in-place real transform is performed. There's also Python code for checking the answer, which requires numpy / scipy. The C code requires the CLFFT library to be installed in the root of the repository. For instructions on doing this, check out the readme of example04.
+Another CLFFT example where an in-place real transform is performed. There's also FFTW code and Python code for checking the answer.
+
+- clFFT is required; installation instructions can be found inside example04/README.md
+- FFTW is required; installation is as simple as extracting FFTW's tar file, then running `./configure && sudo make && sudo make install`
+- for Python, numpy and scipy are required
 
 ## Some Notes
 From the [guide on programming OpenCL for NVIDIA](http://www.nvidia.com/content/cudazone/download/OpenCL/NVIDIA_OpenCL_ProgrammingGuide.pdf):

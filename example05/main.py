@@ -1,7 +1,7 @@
 import numpy as np
 import scipy.fftpack as fft
 
-N = 128
+N = 2048 
 v = np.arange(N)
 
 v_fft = fft.fft(v)

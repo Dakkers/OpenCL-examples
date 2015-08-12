@@ -1,25 +1,24 @@
 CXX = gcc 
 
 # clFFT lib & inc
-CLFFT_LIB = -lOpenCL -L./clFFT/build/package/lib64 -lclFFT
+CLFFT_LIB = -lOpenCL -L./usr/local/lib64 -lclFFT
 CLFFT_INCLUDE = -I./clFFT/build/package/include
 
 # standard math library
 CXXFLAGS = -c $(CLFFT_INCLUDE)
-LDFLAGS = -lm $(CLFFT_LIB)
+LDFLAGS = -lm $(CLFFT_LIB) -lfftw3 -lm
 EXE = Example 
 
 all: ex04 ex05
 
-# entire process
 ex04: example04/build/main.o
 	@if [ ! -d "./example04/bin" ]; then mkdir ./example04/bin; fi
 	$(CXX) $< $(LDFLAGS) -o example04/bin/$(EXE)
 
-# create object file (compile without linking)
 example04/build/main.o: example04/main.c
 	@if [ ! -d "./example04/build" ]; then mkdir ./example04/build; fi
 	$(CXX) $(CXXFLAGS) $< -o $@
+
 
 ex05: example05/build/main.o
 	@if [ ! -d "./example05/bin" ]; then mkdir ./example05/bin; fi

@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <math.h>
 #include <clFFT.h>
+#include <fftw3.h>
  
 const char *kernelSource =
 "#pragma OPENCL EXTENSION cl_khr_fp64 : enable  \n" \
@@ -45,7 +46,7 @@ int main( int argc, char* argv[] ) {
      * by 2 (192). The kernel will operate on zeros, but it should be faster
      * than the scenario with warp divergence. */
 
-    unsigned int N = 128;
+    unsigned int N = 2048;
     unsigned int N_pad = 2*roundUpToNearest( (N+2)/2, 32 );
     size_t N_bytes = N_pad * sizeof(double);
 
@@ -66,14 +67,13 @@ int main( int argc, char* argv[] ) {
     clfftSetup(&fftSetup);
  
     // host version of v
-    double *h_v;  // real & imaginary parts
+    double *h_v;
     h_v = (double*) malloc(N_bytes);
  
-    // initialize v on host
+    // initialize v on host (GPU and CPU)
     int i;
-    for (i = 0; i < N; i++) {
+    for (i = 0; i < N; i++)
         h_v[i] = i;
-    }
 
     // global & local number of threads
     size_t globalSize, localSize;
@@ -121,29 +121,67 @@ int main( int argc, char* argv[] ) {
     clfftSetResultLocation(planHandleBackward, CLFFT_INPLACE);
     clfftBakePlan(planHandleBackward, 1, &queue, NULL, NULL);
 
-    // set all of ze kernel args...
     err  = clSetKernelArg(k_mult, 0, sizeof(cl_mem), &d_v);
  
-    // FFT data, apply psi, IFFT data
+    // FFT data, multiply elements, IFFT data
     clfftEnqueueTransform(planHandleForward, CLFFT_FORWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
     clFinish(queue);
  
      err = clEnqueueNDRangeKernel(queue, k_mult, 1, NULL, &globalSize, &localSize, 0, NULL, NULL);
      clFinish(queue);
 
-    //clfftEnqueueTransform(planHandleBackward, CLFFT_BACKWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
+    clfftEnqueueTransform(planHandleBackward, CLFFT_BACKWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
     clFinish(queue);
 
     // transfer back
     clEnqueueReadBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL );
     clFinish(queue);
  
-    printf("[  ");
-    for (i=0; i<N; i++)
-        printf("%f ", h_v[i]);
-    printf("]\n");
+    // do CPU equivalent
+    double *v;
+    fftw_complex *V;
+    int N_COMPLEX = N/2 + 1;
+    int REAL = 0;
+    int IMAG = 1;
 
-    // release clFFT stuff
+    v = (double*) malloc(N * sizeof(double));
+    V = (fftw_complex*) malloc(N_COMPLEX * sizeof(fftw_complex));
+
+    fftw_plan fft  = fftw_plan_dft_r2c_1d(N, v, V, FFTW_MEASURE);
+    fftw_plan ifft = fftw_plan_dft_c2r_1d(N, V, v, FFTW_MEASURE);
+
+    // initialize v here because otherwise fftw_execute will run before
+    // we initialize the plan... for some reason.
+    for (i=0; i<N; i++)
+        v[i] = i;
+
+    fftw_execute(fft);
+    for (i=0; i<N_COMPLEX; i++) {
+        V[i][REAL] = 2 * V[i][REAL];
+        V[i][IMAG] = 4 * V[i][IMAG];
+    }
+    fftw_execute(ifft);
+
+    // scale array as FFTW doesn't automatically do this for back transform
+    for (i=0; i<N; i++)
+        v[i] = v[i]/N;
+
+
+    double epsilon = 0.0;
+    int arrays_equal = 1;
+    for (i=0; i<N; i++) {
+        printf("[%f %f]  ", h_v[i], v[i]);
+        if (abs(v[i] - h_v[i]) > epsilon)
+            arrays_equal = 0;
+    }
+    
+    if (arrays_equal)
+        printf("Arrays are equal!\n");
+    else
+        printf("Arrays are NOT equal!\n");
+
+    // release FFT stuff
+    fftw_free(V);
     clfftDestroyPlan( &planHandleForward );
     clfftDestroyPlan( &planHandleBackward );
     clfftTeardown();
@@ -156,6 +194,7 @@ int main( int argc, char* argv[] ) {
     clReleaseContext(context);
  
     //release host memory
+    free(v);
     free(h_v);
  
     return 0;

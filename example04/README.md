@@ -10,16 +10,9 @@ mkdir build
 cd build
 cmake ../src
 make
-make install
+sudo make install
+export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:/usr/local/lib64
 ```
-
-and then
-
-```
-export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:`pwd`/clFFT/build/package/lib64
-```
-
-(`pwd` should give the path to the top-level of the repository!).
 
 ## Running it
 In the top-level directory, run
@@ -30,3 +23,4 @@ make ex04
 ```
 
 and it should print out a vector! :hamburger:
+
