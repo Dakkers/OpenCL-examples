@@ -1,13 +1,18 @@
 CXX = gcc 
 
 # clFFT lib & inc
-CLFFT_LIB = -lOpenCL -L./usr/local/lib64 -lclFFT
-CLFFT_INCLUDE = -I./clFFT/build/package/include
+CLFFT_LIB = -L/usr/local/cuda-7.0/targets/x86_64-linux/lib -lOpenCL -L./usr/local/lib64 -lclFFT
 
 # standard math library
 CXXFLAGS = -c $(CLFFT_INCLUDE)
 LDFLAGS = -lm $(CLFFT_LIB) -lfftw3 -lm
 EXE = Example 
+
+# ignore warnings when compiling if warn=0
+ifeq ($(warn), 0)
+	CXXFLAGS += -w
+endif
+
 
 all: ex04 ex05
 
@@ -24,7 +29,6 @@ ex05: example05/build/main.o
 	@if [ ! -d "./example05/bin" ]; then mkdir ./example05/bin; fi
 	$(CXX) $< $(LDFLAGS) -o example05/bin/$(EXE)
 
-# create object file (compile without linking)
 example05/build/main.o: example05/main.c
 	@if [ ! -d "./example05/build" ]; then mkdir ./example05/build; fi
 	$(CXX) $(CXXFLAGS) $< -o $@

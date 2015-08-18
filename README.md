@@ -60,7 +60,7 @@ An example of the CLFFT library for an in-place complex-planar transform. There 
 - for Python, numpy and scipy are required
 
 ## example 05
-Another CLFFT example where an in-place real transform is performed. There's also FFTW code and Python code for checking the answer.
+Another CLFFT example where an in-place real transform and an out-of-place real transform are performed. There's also FFTW code and Python code for checking the answer.
 
 - clFFT is required; installation instructions can be found inside example04/README.md
 - FFTW is required; installation is as simple as extracting FFTW's tar file, then running `./configure && sudo make && sudo make install`

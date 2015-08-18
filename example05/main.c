@@ -3,8 +3,9 @@
 #include <math.h>
 #include <clFFT.h>
 #include <fftw3.h>
- 
-const char *kernelSource =
+
+
+static const char *kernelSource =
 "#pragma OPENCL EXTENSION cl_khr_fp64 : enable  \n" \
 "__kernel void mult(__global double *v) {       \n" \
 "    int id, v_re, v_im;       \n" \
@@ -27,6 +28,23 @@ int roundUpToNearest(int x, int n) {
     return x + (n - x_rem);
 }
 
+
+void checkIfArraysEqual(double *h_v, double *v, int N, double epsilon) {
+    int arrays_equal = 1;
+    int i;
+
+    for (i=0; i<N; i++) {
+        // printf("[%f %f]  ", h_v[i], v[i]);
+        if (abs(v[i] - h_v[i]) > epsilon)
+            arrays_equal = 0;
+    }
+    
+    if (arrays_equal)
+        printf("Arrays are equal!\n");
+    else
+        printf("Arrays are NOT equal!\n");
+}
+
  
 int main( int argc, char* argv[] ) {
     /* This setup is a bit tricky. Since we're doing a real transform, CLFFT
@@ -46,7 +64,7 @@ int main( int argc, char* argv[] ) {
      * by 2 (192). The kernel will operate on zeros, but it should be faster
      * than the scenario with warp divergence. */
 
-    unsigned int N = 2048;
+    unsigned int N = 4096;
     unsigned int N_pad = 2*roundUpToNearest( (N+2)/2, 32 );
     size_t N_bytes = N_pad * sizeof(double);
 
@@ -75,6 +93,37 @@ int main( int argc, char* argv[] ) {
     for (i = 0; i < N; i++)
         h_v[i] = i;
 
+    // CPU TRANSFORM ----------------------------------------------------------
+    double *v;
+    fftw_complex *V;
+    int N_COMPLEX = N/2 + 1;
+    int REAL = 0;
+    int IMAG = 1;
+
+    v = (double*) malloc(N * sizeof(double));
+    V = (fftw_complex*) malloc(N_COMPLEX * sizeof(fftw_complex));
+
+    fftw_plan fft  = fftw_plan_dft_r2c_1d(N, v, V, FFTW_MEASURE);
+    fftw_plan ifft = fftw_plan_dft_c2r_1d(N, V, v, FFTW_MEASURE);
+
+    // initialize v here because otherwise fftw_execute will run before we 
+    // initialize the plan... for some reason.
+    for (i=0; i<N; i++)
+        v[i] = i;
+
+    fftw_execute(fft);
+    for (i=0; i<N_COMPLEX; i++) {
+        V[i][REAL] = 2 * V[i][REAL];
+        V[i][IMAG] = 4 * V[i][IMAG];
+    }
+    fftw_execute(ifft);
+
+    // scale array as FFTW doesn't automatically do this for back transform
+    for (i=0; i<N; i++)
+        v[i] = v[i]/N;
+
+
+    // GPU STUFF --------------------------------------------------------------
     // global & local number of threads
     size_t globalSize, localSize;
     globalSize = N_pad / 2;
@@ -103,10 +152,11 @@ int main( int argc, char* argv[] ) {
     k_mult = clCreateKernel(program, "mult", &err);
  
     // create arrays on host and write them
-    cl_mem d_v;
+    cl_mem d_v, d_V;
     d_v = clCreateBuffer(context, CL_MEM_READ_WRITE, N_bytes, NULL, NULL);
     err = clEnqueueWriteBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL);
 
+    // REAL IN-PLACE TRANSFORM ------------------------------------------------
     // create forward plan and set its params
     clfftCreateDefaultPlan(&planHandleForward, context, dim, clLengths);
     clfftSetPlanPrecision(planHandleForward, CLFFT_DOUBLE);
@@ -126,59 +176,55 @@ int main( int argc, char* argv[] ) {
     // FFT data, multiply elements, IFFT data
     clfftEnqueueTransform(planHandleForward, CLFFT_FORWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
     clFinish(queue);
- 
-     err = clEnqueueNDRangeKernel(queue, k_mult, 1, NULL, &globalSize, &localSize, 0, NULL, NULL);
-     clFinish(queue);
-
+    err = clEnqueueNDRangeKernel(queue, k_mult, 1, NULL, &globalSize, &localSize, 0, NULL, NULL);
+    clFinish(queue);
     clfftEnqueueTransform(planHandleBackward, CLFFT_BACKWARD, 1, &queue, 0, NULL, NULL, &d_v, NULL, NULL);
     clFinish(queue);
-
-    // transfer back
     clEnqueueReadBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL );
     clFinish(queue);
- 
-    // do CPU equivalent
-    double *v;
-    fftw_complex *V;
-    int N_COMPLEX = N/2 + 1;
-    int REAL = 0;
-    int IMAG = 1;
-
-    v = (double*) malloc(N * sizeof(double));
-    V = (fftw_complex*) malloc(N_COMPLEX * sizeof(fftw_complex));
-
-    fftw_plan fft  = fftw_plan_dft_r2c_1d(N, v, V, FFTW_MEASURE);
-    fftw_plan ifft = fftw_plan_dft_c2r_1d(N, V, v, FFTW_MEASURE);
-
-    // initialize v here because otherwise fftw_execute will run before
-    // we initialize the plan... for some reason.
-    for (i=0; i<N; i++)
-        v[i] = i;
-
-    fftw_execute(fft);
-    for (i=0; i<N_COMPLEX; i++) {
-        V[i][REAL] = 2 * V[i][REAL];
-        V[i][IMAG] = 4 * V[i][IMAG];
-    }
-    fftw_execute(ifft);
-
-    // scale array as FFTW doesn't automatically do this for back transform
-    for (i=0; i<N; i++)
-        v[i] = v[i]/N;
-
-
-    double epsilon = 0.0;
-    int arrays_equal = 1;
-    for (i=0; i<N; i++) {
-        printf("[%f %f]  ", h_v[i], v[i]);
-        if (abs(v[i] - h_v[i]) > epsilon)
-            arrays_equal = 0;
-    }
     
-    if (arrays_equal)
-        printf("Arrays are equal!\n");
-    else
-        printf("Arrays are NOT equal!\n");
+    clfftDestroyPlan( &planHandleForward );
+    clfftDestroyPlan( &planHandleBackward );
+    printf("Testing in-place real transform... ");
+    checkIfArraysEqual(h_v, v, N, 0.0);
+
+
+    
+    // REAL OUT-OF-PLACE TRANSFORM --------------------------------------------
+    // reset array
+    d_v = clCreateBuffer(context, CL_MEM_READ_WRITE, N_bytes, NULL, NULL);
+    d_V = clCreateBuffer(context, CL_MEM_READ_WRITE, N_bytes, NULL, NULL);
+    
+    cl_mem inputBuffers[1] = {0}, outputBuffers[1] = {0};
+    inputBuffers[0] = d_v;
+    outputBuffers[0] = d_V;
+
+    err = clEnqueueWriteBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL);
+
+    clfftCreateDefaultPlan(&planHandleForward, context, dim, clLengths);
+    clfftSetPlanPrecision(planHandleForward, CLFFT_DOUBLE);
+    clfftSetLayout(planHandleForward, CLFFT_REAL, CLFFT_HERMITIAN_INTERLEAVED);
+    clfftSetResultLocation(planHandleForward, CLFFT_OUTOFPLACE);
+    clfftBakePlan(planHandleForward, 1, &queue, NULL, NULL);
+
+    clfftCreateDefaultPlan(&planHandleBackward, context, dim, clLengths);
+    clfftSetPlanPrecision(planHandleBackward, CLFFT_DOUBLE);
+    clfftSetLayout(planHandleBackward, CLFFT_HERMITIAN_INTERLEAVED, CLFFT_REAL);
+    clfftSetResultLocation(planHandleBackward, CLFFT_OUTOFPLACE);
+    clfftBakePlan(planHandleBackward, 1, &queue, NULL, NULL);
+
+    clfftEnqueueTransform(planHandleForward, CLFFT_FORWARD, 1, &queue, 0, NULL, NULL, &inputBuffers, &outputBuffers, NULL);
+    clFinish(queue);
+    err = clEnqueueNDRangeKernel(queue, k_mult, 1, NULL, &globalSize, &localSize, 0, NULL, NULL);
+    clFinish(queue);
+    clfftEnqueueTransform(planHandleBackward, CLFFT_BACKWARD, 1, &queue, 0, NULL, NULL, &inputBuffers, &outputBuffers, NULL);
+    clFinish(queue);
+    clEnqueueReadBuffer(queue, d_v, CL_TRUE, 0, N_bytes, h_v, 0, NULL, NULL );
+    clFinish(queue);
+
+    printf("Testing out-of-place transform... ");
+    checkIfArraysEqual(h_v, v, N, 0.0);
+
 
     // release FFT stuff
     fftw_free(V);
