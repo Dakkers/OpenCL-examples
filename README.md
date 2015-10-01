@@ -41,6 +41,25 @@ To compile:
 clang++ -std=c++0x -framework OpenCL main.cpp -o main.out
 ```
 
+### Windows
+For some reason, the makefile didn't want to work for Windows. I have no idea why.
+
+For example 04, run (inside the directory):
+
+```
+gcc -I/c/Program\ Files/NVIDIA\ GPU\ Computing\ Toolkit/CUDA/v7.5/include -I/c/PATH/TO/CLFFT/include main.c -o main.exe -L/c/Program\ Files/NVIDIA\ GPU\ Computing\ Toolkit/CUDA/v7.5/lib/x64 -lOpenCL -L/c/PATH/TO/CLFFT/lib64/import -lclFFT
+```
+
+where `PATH/TO/CLFFT` is the path to the clFFT library.
+
+For example 05, run (inside the directory):
+
+```
+gcc -I/c/Program\ Files/NVIDIA\ GPU\ Computing\ Toolkit/CUDA/v7.5/include -I/c/PATH/TO/CLFFT/include -I/c/PATH/TO/FFTW main.c -o main.exe -L/c/Program\ Files/NVIDIA\ GPU\ Computing\ Toolkit/CUDA/v7.5/lib/x64 -lOpenCL -L/c/PATH/TO/CLFFT/lib64/import -lclFFT -L/c/PATH/TO/FFTW -lfftw3-3
+```
+
+where `PATH/TO/FFTW` is the path to the FFTW3 library.
+
 ## example 00
 this example is based off of [this example](simpleopencl.blogspot.ca/2013/06/tutorial-simple-start-with-opencl-and-c.html) (example-ception), but it goes a bit further. In the blogspot example, two 10-element vectors are created and a thread is used for each pair of elements. In this example, 10 threads are spawned but two 100-element vectors are used, and it is shown how to split up a specific number of elements per thread.
 
