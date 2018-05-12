@@ -92,8 +92,10 @@ int main() {
     queue.enqueueWriteBuffer(buffer_N, CL_TRUE, 0, sizeof(int),   N);
 
     // RUN ZE KERNEL
-    cl::KernelFunctor simple_add(cl::Kernel(program, "simple_add"), queue, cl::NullRange, cl::NDRange(10), cl::NullRange);
-    simple_add(buffer_A, buffer_B, buffer_C, buffer_N);
+    cl::Kernel simple_add(program, "simple_add"); 
+    simple_add.setArg(0, buffer_A);
+    simple_add.setArg(1, buffer_B);
+    simple_add.setArg(2, buffer_C);
 
     int C[n];
     // read result from GPU to here
