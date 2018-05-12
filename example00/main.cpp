@@ -31,7 +31,7 @@ int main() {
 
     // a context is like a "runtime link" to the device and platform;
     // i.e. communication is possible
-    cl::Context context({default_device});
+    cl::Context context(default_device); 
 
     // create the program that we want to execute on the device
     cl::Program::Sources sources;
@@ -53,10 +53,15 @@ int main() {
         "       for (int i=start; i<stop; i++)"
         "           C[i] = A[i] + B[i];"
         "   }";
-    sources.push_back({kernel_code.c_str(), kernel_code.length()});
+    sources.push_back( 
+      std::make_pair(
+        kernel_code.c_str(),
+        kernel_code.length()
+      )
+    );
 
     cl::Program program(context, sources);
-    if (program.build({default_device}) != CL_SUCCESS) {
+    if (program.build(all_devices) != CL_SUCCESS) {
         std::cout << "Error building: " << program.getBuildInfo<CL_PROGRAM_BUILD_LOG>(default_device) << std::endl;
         exit(1);
     }
