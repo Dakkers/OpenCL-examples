@@ -61,7 +61,7 @@ gcc -I/c/Program\ Files/NVIDIA\ GPU\ Computing\ Toolkit/CUDA/v7.5/include -I/c/P
 where `PATH/TO/FFTW` is the path to the FFTW3 library.
 
 ## example 00
-this example is based off of [this example](simpleopencl.blogspot.ca/2013/06/tutorial-simple-start-with-opencl-and-c.html) (example-ception), but it goes a bit further. In the blogspot example, two 10-element vectors are created and a thread is used for each pair of elements. In this example, 10 threads are spawned but two 100-element vectors are used, and it is shown how to split up a specific number of elements per thread.
+this example is based off of [this example](http://simpleopencl.blogspot.ca/2013/06/tutorial-simple-start-with-opencl-and-c.html) (example-ception), but it goes a bit further. In the blogspot example, two 10-element vectors are created and a thread is used for each pair of elements. In this example, 10 threads are spawned but two 100-element vectors are used, and it is shown how to split up a specific number of elements per thread.
 
 ## example 01
 Measures the duration of adding two vectors. See the README in the folder for more details.
