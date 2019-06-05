@@ -31,8 +31,8 @@ make       # makes both!
 OpenCL is installed on OS X by default, but since this code uses the C++ bindings, you'll need to get that too. Get the [official C++ bindings from the OpenCL registr](https://www.khronos.org/registry/cl/api/1.1/cl.hpp) and copy it to the OpenCL framework directory, or do the following:
 
 ```
-wget https://www.khronos.org/registry/cl/api/1.1/cl.hpp
-sudo cp cl.hpp /System/Library/Frameworks/OpenCL.framework/Headers/
+wget https://www.khronos.org/registry/OpenCL/api/2.1/cl.hpp
+sudo cp cl.hpp /path/to/the/examples/folder/
 ```
 
 To compile:
